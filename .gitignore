@@ -393,6 +393,7 @@ FodyWeavers.xsd
 !.vscode/launch.json
 !.vscode/extensions.json
 *.code-workspace
+*.lscache
 
 # Local History for Visual Studio Code
 .history/
@@ -482,3 +483,4 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+

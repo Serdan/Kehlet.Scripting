@@ -1,4 +1,6 @@
 ﻿using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 
 namespace Kehlet.Scripting;
 
@@ -17,6 +19,33 @@ namespace Kehlet.Scripting;
 public readonly record struct ProcessResult(string StandardOutput, string StandardError, int ExitCode)
 {
     public bool Success => ExitCode is 0;
+
+    public void WriteOutput()
+    {
+        if (!string.IsNullOrWhiteSpace(StandardOutput))
+        {
+            Console.Out.Write(StandardOutput);
+        }
+    }
+
+    public void WriteError()
+    {
+        if (!string.IsNullOrWhiteSpace(StandardError))
+        {
+            Console.Error.Write(StandardError);
+        }
+    }
+
+    public void WriteSummary()
+    {
+        if (!Success)
+        {
+            Console.Error.WriteLine($"Exited with {ExitCode}");
+        }
+
+        WriteOutput();
+        WriteError();
+    }
 }
 
 /// <summary>
@@ -71,7 +100,7 @@ public enum ShellKind
 public static class Shell
 {
     private static ProcessStartInfo CreateStartInfo(string fileName, params string[] arguments) =>
-        new(fileName, arguments.ToArray())
+        new(fileName, arguments)
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -99,6 +128,10 @@ public static class Shell
                 throw new PlatformNotSupportedException(),
             _ => throw new ArgumentOutOfRangeException(nameof(kind))
         };
+
+    public static ProcessResult Run(string fileName, params string[] arguments) => Run(CreateStartInfo(fileName, arguments));
+
+    public static Task<ProcessResult> RunAsync(string fileName, string[] arguments, CancellationToken token = default) => RunAsync(CreateStartInfo(fileName, arguments), token);
 
     /// <summary>
     /// Executes a configured process asynchronously.
@@ -231,56 +264,7 @@ public static class Shell
         /// <exception cref="OperationCanceledException">
         /// Thrown if <paramref name="token"/> is canceled.
         /// </exception>
-        public Task<ProcessResult> RunAsync(ShellKind kind, CancellationToken token = default) => RunAsync(CreateShellStartInfo(command, kind), token);
-
-        /// <summary>
-        /// Executes the current string as a shell command asynchronously using the platform default shell.
-        /// </summary>
-        /// <param name="token">
-        /// A cancellation token that, when triggered, attempts to terminate the process and its entire process tree.
-        /// </param>
-        /// <returns>
-        /// A task that completes with a <see cref="ProcessResult"/> containing the captured standard output,
-        /// standard error, and exit code.
-        /// </returns>
-        /// <remarks>
-        /// The platform default shell is <c>pwsh</c> on Windows and <c>/bin/sh</c> on Linux and macOS.
-        /// The command string is passed directly to the underlying shell, so its syntax must match the selected shell.
-        /// </remarks>
-        /// <exception cref="InvalidOperationException">
-        /// Thrown if the process fails to start.
-        /// </exception>
-        /// <exception cref="PlatformNotSupportedException">
-        /// Thrown if the current operating system is not supported.
-        /// </exception>
-        /// <exception cref="OperationCanceledException">
-        /// Thrown if <paramref name="token"/> is canceled.
-        /// </exception>
-        public Task<ProcessResult> RunAsync(CancellationToken token = default) => command.RunAsync(ShellKind.PlatformDefault, token);
-
-        /// <summary>
-        /// Executes the current string as a shell command synchronously using the platform default shell.
-        /// </summary>
-        /// <param name="token">
-        /// A cancellation token that, when triggered, attempts to terminate the process and its entire process tree.
-        /// </param>
-        /// <returns>
-        /// A <see cref="ProcessResult"/> containing the captured standard output, standard error, and exit code.
-        /// </returns>
-        /// <remarks>
-        /// The platform default shell is <c>pwsh</c> on Windows and <c>/bin/sh</c> on Linux and macOS.
-        /// The command string is passed directly to the underlying shell, so its syntax must match the selected shell.
-        /// </remarks>
-        /// <exception cref="InvalidOperationException">
-        /// Thrown if the process fails to start.
-        /// </exception>
-        /// <exception cref="PlatformNotSupportedException">
-        /// Thrown if the current operating system is not supported.
-        /// </exception>
-        /// <exception cref="OperationCanceledException">
-        /// Thrown if <paramref name="token"/> is canceled.
-        /// </exception>
-        public ProcessResult Run(CancellationToken token = default) => Run(CreateShellStartInfo(command, ShellKind.PlatformDefault), token);
+        public Task<ProcessResult> RunAsync(ShellKind kind = ShellKind.PlatformDefault, CancellationToken token = default) => RunAsync(CreateShellStartInfo(command, kind), token);
 
         /// <summary>
         /// Executes the current string as a shell command synchronously using the specified shell.
@@ -310,7 +294,7 @@ public static class Shell
         /// <exception cref="OperationCanceledException">
         /// Thrown if <paramref name="token"/> is canceled.
         /// </exception>
-        public ProcessResult Run(ShellKind kind, CancellationToken token = default) => Run(CreateShellStartInfo(command, kind), token);
+        public ProcessResult Run(ShellKind kind = ShellKind.PlatformDefault, CancellationToken token = default) => Run(CreateShellStartInfo(command, kind), token);
 
         /// <summary>
         /// Executes the current string as a shell command asynchronously using the platform default shell.
@@ -332,5 +316,85 @@ public static class Shell
         /// Thrown if the current operating system is not supported.
         /// </exception>
         public static Task<ProcessResult> operator !(string cmd) => cmd.RunAsync();
+    }
+
+    public static AbsolutePath CurrentDirectory => AbsolutePath.CurrentDirectory;
+}
+
+public sealed record AbsolutePath
+{
+    public string Value { get; }
+
+    internal AbsolutePath(string value)
+    {
+        Value = value;
+    }
+
+
+    public AbsolutePath Normalized => new(Path.GetFullPath(Value));
+
+    public override string ToString() => Value;
+
+    public static AbsolutePath From(string value)
+    {
+        Errors.ThrowIfNotAbsolute(value);
+
+        return new(value);
+    }
+
+    /// <summary>
+    /// Creates an absolute path by appending a relative path to the current working directory.
+    /// </summary>
+    /// <param name="relative">The relative path to append.</param>
+    /// <returns>An absolute path rooted at the current working directory.</returns>
+    /// <exception cref="ArgumentException">
+    /// Thrown if <paramref name="relative"/> is rooted.
+    /// </exception>
+    public static AbsolutePath FromRelative(string relative)
+    {
+        Errors.ThrowIfNotRelative(relative);
+
+        return new(Path.Combine(Directory.GetCurrentDirectory(), relative));
+    }
+
+    public static AbsolutePath Combine(AbsolutePath root, string relative)
+    {
+        Errors.ThrowIfNotRelative(relative);
+
+        return new(Path.Combine(root.Value, relative));
+    }
+
+    public static AbsolutePath TempFile() => new(Path.GetTempFileName());
+
+    public static AbsolutePath CurrentDirectory => new(Directory.GetCurrentDirectory());
+    public static AbsolutePath Temp => new(Path.GetTempPath());
+    public static AbsolutePath Home => new(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+    public static AbsolutePath ExecutableDirectory => new(AppContext.BaseDirectory);
+
+    public static AbsolutePath operator /(AbsolutePath root, string relative) => Combine(root, relative);
+    public static implicit operator string(AbsolutePath path) => path.Value;
+
+    private static class Errors
+    {
+        public static void ThrowIfNotAbsolute(string path, [CallerArgumentExpression(nameof(path))] string paramName = "")
+        {
+            if (!Path.IsPathRooted(path))
+            {
+                PathMustBeAbsolute(paramName);
+            }
+        }
+
+        public static void ThrowIfNotRelative(string path, [CallerArgumentExpression(nameof(path))] string paramName = "")
+        {
+            if (Path.IsPathRooted(path))
+            {
+                PathMustBeRelative(paramName);
+            }
+        }
+
+        [DoesNotReturn]
+        private static void PathMustBeAbsolute(string paramName) => throw new ArgumentException("Path must be absolute.", paramName);
+        [DoesNotReturn]
+        private static void PathMustBeRelative(string paramName) => throw new ArgumentException("Path must be relative.", paramName);
     }
 }
