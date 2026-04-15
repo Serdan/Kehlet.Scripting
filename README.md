@@ -3,7 +3,7 @@
 Tiny shell helpers for C# scripts and small utilities.
 
 * No dependencies
-* Single-file friendly
+* Single file, copy-paste friendly
 * Works with `dotnet run app.cs`
 * Also available as a package
 
@@ -23,45 +23,115 @@ Tiny shell helpers for C# scripts and small utilities.
 
 Copy `Shell.cs` into your project.
 
-That’s it.
-
 ---
 
-## Usage
+## Quick start
 
 ```csharp
-using static Shell;
+using Kehlet.Scripting;
 
-var result = await "echo hello".Run();
+var result = await "echo hello".RunAsync();
 
 Console.WriteLine(result.StandardOutput);
 ```
 
-Explicit shell:
+---
+
+## Async / sync
 
 ```csharp
-await "ls -la".Run(ShellKind.Bash);
-await "git status".Run(ShellKind.Sh);
-await "dir".Run(ShellKind.Cmd);
-await "echo $env:USERPROFILE".Run(ShellKind.Pwsh);
+// Async (recommended)
+var result = await "echo hello".RunAsync();
+
+// Sync
+var result = "echo hello".Run();
+```
+
+---
+
+## Shell selection
+
+```csharp
+await "ls -la".RunAsync(ShellKind.Bash);
+await "git status".RunAsync(ShellKind.Sh);
+await "dir".RunAsync(ShellKind.Cmd);
+await "echo $env:USERPROFILE".RunAsync(ShellKind.Pwsh);
+await "ls -la".RunAsync(ShellKind.WslBash);
 ```
 
 ---
 
 ## Platform defaults
 
-`Run()` without specifying a shell uses:
+`Run()` / `RunAsync()` without specifying a shell uses:
 
 * **Windows** → `pwsh`
 * **Linux / macOS** → `/bin/sh`
 
 ```csharp
-await "echo hi".Run(); // Uses platform default
+await "echo hi".RunAsync();
 ```
 
 ---
 
-## Available shells
+## Pattern matching
+
+```csharp
+if (await "git diff --quiet".RunAsync() is { ExitCode: 0 })
+{
+    Console.WriteLine("No changes");
+}
+```
+
+---
+
+## Deconstruction
+
+```csharp
+var (stdout, stderr, code) = await "echo hello".RunAsync();
+```
+
+---
+
+## Cancellation
+
+```csharp
+using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+
+await "sleep 10".RunAsync(cts.Token);
+```
+
+Cancelling will attempt to terminate the process and its entire process tree.
+
+---
+
+## Operator shorthand
+
+```csharp
+var result = await !"echo hello";
+```
+
+Equivalent to:
+
+```csharp
+await "echo hello".RunAsync();
+```
+
+---
+
+## Result type
+
+```csharp
+public readonly record struct ProcessResult(
+    string StandardOutput,
+    string StandardError,
+    int ExitCode
+);
+```
+
+---
+
+## Shells
 
 ```csharp
 public enum ShellKind
@@ -75,46 +145,13 @@ public enum ShellKind
 }
 ```
 
-Examples:
-
-```csharp
-await "echo hello".Run(ShellKind.Sh);
-await "echo hello".Run(ShellKind.Bash);
-await "echo hello".Run(ShellKind.Pwsh);
-await "echo hello".Run(ShellKind.WslBash);
-```
-
----
-
-## Result
-
-```csharp
-public readonly record struct ProcessResult(
-    string StandardOutput,
-    string StandardError,
-    int ExitCode
-);
-```
-
----
-
-## Cancellation
-
-```csharp
-using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-
-await "sleep 10".Run(cts.Token);
-```
-
-* Cancelling will attempt to kill the process and its entire process tree.
-
 ---
 
 ## Notes
 
-* Commands are passed directly to the shell. No escaping or validation is performed.
+* Commands are passed directly to the shell (no escaping or validation).
 * Command syntax must match the selected shell.
-* Output is captured after the process exits (not streamed).
+* Output is fully buffered and returned after the process exits (not streamed).
 * Shell executables must exist on the system (`pwsh`, `/bin/sh`, `bash`, etc.).
 
 ---
