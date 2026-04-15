@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
 
     <PackageId>Kehlet.Scripting</PackageId>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <Authors>Anders Kehlet</Authors>
     <Description>Tiny shell helpers for C# scripts and small utilities. Copy-paste friendly, no dependencies.</Description>
     <PackageTags>shell scripting process bash pwsh cmd wsl dotnet-script</PackageTags>
